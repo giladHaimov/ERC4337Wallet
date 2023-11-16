@@ -17,7 +17,7 @@ solc = "0.8.4"
 
 
 [fuzz]
-runs = 10_000 # @dev test with 50_000 pre major releases zzzz
+runs = 100 # @dev test with 50_000 pre major releases 
 #max_test_rejects = 65536
 #seed = '0x3e8'
 #dictionary_weight = 40

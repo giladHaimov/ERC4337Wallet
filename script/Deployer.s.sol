@@ -23,10 +23,10 @@ contract Deployer is Script {
     ERC4337Wallet public wallet;
     //MockEntryPoint public entryPoint;
 
-    function run() external returns(ERC4337Wallet) {
+    function run(address entryPoint) external returns(ERC4337Wallet) {
 	    // vm.startBroadcast(); 
         if (_isLocalTestnet()) {
-            wallet = _performActualDeployment();
+            wallet = _performActualDeployment(entryPoint);
         } else {
             wallet = ERC4337Wallet(payable(_usePredeployedContracts()));
         }
@@ -34,10 +34,9 @@ contract Deployer is Script {
         return wallet;
     }
 
-    function _performActualDeployment() private returns(ERC4337Wallet) {        
+    function _performActualDeployment(address entryPoint) private returns(ERC4337Wallet) {        
         console.log("deploying on network %s", block.chainid); 
         // entryPoint = new MockEntryPoint();
-        address entryPoint = makeAddr("entryPoint");
         return new ERC4337Wallet(entryPoint);                                
     }
 

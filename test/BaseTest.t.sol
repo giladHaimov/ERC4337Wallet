@@ -14,24 +14,24 @@ abstract contract BaseTest is Test {
     bool constant internal ACCEPT_PAYMENTS = true; // test EOAs/eth-accepting contracts
     bool constant internal REJECT_PAYMENTS = false;  // test eth-rejecting (hostile?) contracts
 
-    Deployer internal deployer;
-    ERC4337Wallet internal wallet;
+    //Deployer internal s_deployer;
+    //ERC4337Wallet internal s_wallet;
     
-    bool internal acceptPayment; // mutable by design. to be set by a derived test on demand
+    bool internal s_acceptPayment; // mutable by design. to be set by a derived test on demand
 
     constructor(bool accept) {
-        acceptPayment = accept;
+        s_acceptPayment = accept;
     }
 
     receive() external payable {
-        if (!acceptPayment) { 
+        if (!s_acceptPayment) { 
             revert("payment rejected");
         }
     } 
 
     function setUp() public virtual {
-        deployer = new Deployer();
-        wallet = deployer.run();
+        //s_deployer = new Deployer();
+        //s_wallet = s_deployer.run(entryPoint);
     }
 
     function _hoaxWithGas(address impersonateTo) internal {

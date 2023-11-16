@@ -81,9 +81,13 @@ contract ERC4337Wallet is IERC4337Wallet, Ownable, ReentrancyGuard {
     return tokenBalance[msg.sender][tokenAddress];
   }
 
+  function getTokenBalance(address tokenOwner, address tokenAddress) external view returns(uint) {
+    return tokenBalance[tokenOwner][tokenAddress];
+  }
+
   function depositTokens(IERC20 token, uint amount) external nonReentrant {
     tokenBalance[msg.sender][address(token)] += amount;
-    _safeTransferToken(token, msg.sender, address(this), amount);
+    _safeTransferTokenFrom(token, msg.sender, address(this), amount);
     emit TokenDeposited(msg.sender, address(token), amount);
   }
 
@@ -98,14 +102,18 @@ contract ERC4337Wallet is IERC4337Wallet, Ownable, ReentrancyGuard {
     // if (tokenBalance[to][address(token)] > 0) {
     //     update wallet balance without eth transfer
     // }
-    _safeTransferToken(token, address(this), to, amount);
+    _safeTransferToken(token, to, amount);  
     emit TokenTransferred(msg.sender, address(token), to, amount);
   }
 
+  function _safeTransferToken(IERC20 token, address to, uint amount) private {
+    // called by token owner
+    bool success = token.transfer(to, amount); 
+    require(success, "token transfer failed");
+  }
 
-  function _safeTransferToken(IERC20 token, address from, address to, uint amount) private {
-    //require(sender has enough tokens)
-    //require(contract is approved for amount of tokens by owner);
+  function _safeTransferTokenFrom(IERC20 token, address from, address to, uint amount) private {
+    // called by a non-owner with allowance
     token.transferFrom(from, to, amount); // revert on error
   }
 
@@ -148,7 +156,7 @@ contract ERC4337Wallet is IERC4337Wallet, Ownable, ReentrancyGuard {
     }
   }
 
-  function _validateSignature(UserOperation calldata op, bytes32 requestId) private view {
+  function _validateSignature(UserOperation calldata op, bytes32 requestId) internal virtual view {
     bytes32 hash = requestId.toEthSignedMessageHash();
     require(owner() == hash.recover(op.signature), "bad signature");
   }
