@@ -10,4 +10,8 @@ contract MockERC4337Wallet is ERC4337Wallet {
     function _validateSignature(UserOperation calldata op, bytes32 requestId) internal override view {
         // no-op
     }
+
+    function setNonce(uint val) external {
+        nonce = val;
+    }
 }

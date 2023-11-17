@@ -7,11 +7,14 @@ import {IERC20} from "../src/IERC20.sol";
 import {ERC4337Wallet} from "../src/ERC4337Wallet.sol";
 import {MockERC4337Wallet} from "./utils/MockERC4337Wallet.sol";
 import {MockEntryPoint} from "./utils/MockEntryPoint.sol";
+import {MockExecuteTarget} from "./utils/MockExecuteTarget.sol";
 import {UserOperation} from "../src/structs.sol";
 import {console} from "forge-std/console.sol";
 
 
 contract WalletTest is BaseTest  {
+
+    uint private constant LARGE_ETH_VALUE = 100000 ether;
 
     MockERC4337Wallet private s_wallet;
     MockEntryPoint private s_entryPoint;
@@ -33,15 +36,15 @@ contract WalletTest is BaseTest  {
         s_token = address(new MockERC20());
 	}
 
-    function test_nonEntryPointCannotCallIWalletFuncs(address sender_) public { 
+    function testFuzz_nonEntryPoint_cannot_callIWalletFuncs(address sender_) public { 
         vm.assume(sender_ != address(s_entryPoint));
-        UserOperation memory op = _makeOp();
+        UserOperation memory op = _makeOp(0);
         bytes32 requestId = 0;
-        uint requiredPrefund = 0;
+        uint requiredPrefund_ = 0;
         
         hoax(sender_);
         vm.expectRevert(abi.encodePacked("not entryPoint"));
-        s_wallet.validateUserOp(op, requestId, requiredPrefund);
+        s_wallet.validateUserOp(op, requestId, requiredPrefund_);
 
         address to = makeAddr("executeUserOp:to");
         uint amount = 0;
@@ -53,12 +56,12 @@ contract WalletTest is BaseTest  {
     }
 
     function test_entryPointCanCallIWalletFuncs() public { 
-        UserOperation memory op = _makeOp();
+        UserOperation memory op = _makeOp(0);
         bytes32 requestId = 0;
-        uint requiredPrefund = 0;
+        uint requiredPrefund_ = 0;
         
         hoax(address(s_entryPoint));
-        s_wallet.validateUserOp(op, requestId, requiredPrefund);
+        s_wallet.validateUserOp(op, requestId, requiredPrefund_);
 
         address to = makeAddr("executeUserOp:to");
         uint amount = 0;
@@ -68,12 +71,74 @@ contract WalletTest is BaseTest  {
         s_wallet.executeUserOp(to, amount, data);
     }
 
-    function _makeOp() private returns(UserOperation memory) {
+    function testFuzz_validateUserOp_failsOnInvalidNonce(uint nonce, uint opNonce) public {         
+        nonce= bound(nonce, 0, type(uint256).max-1);
+        vm.assume(nonce != opNonce); // else no BadNonceValue error
+        s_wallet.setNonce(nonce);
+
+        UserOperation memory op = _makeOp(opNonce);
+        bytes32 requestId = 0;
+        uint requiredPrefund_ = 0;
+        
+        vm.expectRevert( abi.encodeWithSelector(ERC4337Wallet.BadNonceValue.selector, nonce+1, opNonce));
+        hoax(address(s_entryPoint));
+        s_wallet.validateUserOp(op, requestId, requiredPrefund_);
+    }
+
+    function testFuzz_validateUserOp_verifyPrefundTransferred(uint requiredPrefund) public {         
+        requiredPrefund = bound(requiredPrefund, 0, LARGE_ETH_VALUE);
+        uint nonce = 100;
+        s_wallet.setNonce(nonce);
+
+        UserOperation memory op = _makeOp(nonce);
+        bytes32 requestId = 0;
+        uint requiredPrefund_ = 0;
+        
+        hoax(address(s_entryPoint));
+        
+        uint pre_balance = address(s_entryPoint).balance;
+        s_wallet.validateUserOp(op, requestId, requiredPrefund_);    
+        uint post_balance = address(s_entryPoint).balance;
+
+        assertEq(pre_balance + requiredPrefund_, post_balance, "validateUserOp failed: requiredPrefund");
+    }
+
+    function testFuzz_executeUserOp_validateFunctionCallMode(address addr, uint id, uint amount, string calldata str) public {         
+        amount = bound(amount, 0, LARGE_ETH_VALUE);
+        MockExecuteTarget target = new MockExecuteTarget();
+        bytes memory data = _getFunctionCallData(addr, id, amount, str);
+
+        assertEq(target.s_to(), address(0), "target: to");
+        assertEq(target.s_id(), 0, "target: id");
+        assertEq(target.s_amount(), 0, "target: amount");
+        assertTrue(_eq(target.s_str(), ""), "target: str");
+
+        vm.deal(address(s_wallet), amount); // verify sufficiengt balance in wallet
+
+        hoax(address(s_entryPoint));
+        s_wallet.executeUserOp(address(target), amount, data);
+        
+        assertEq(target.s_to(), addr, "post target: to");
+        assertEq(target.s_id(), id, "post target: id");
+        assertEq(target.s_amount(), amount, "post target: amount");
+        assertTrue(_eq(target.s_str(), str), "post target: str");
+
+        assertEq(address(target).balance, amount, "post target: balance"); // verify eth transfer
+    }
+
+    function _getFunctionCallData(address to, uint id, uint amount, string calldata str) private pure returns (bytes memory) {
+        string memory funcSignature = "setSomeValues(address,uint256,uint256,string)";
+        bytes4 funcSelector = bytes4(keccak256(bytes(funcSignature)));
+        bytes memory data = abi.encodeWithSelector(funcSelector, to, id, amount, str); // ABI-encoded parameters
+        return data;
+    }
+
+    function _makeOp(uint nonce_) private returns(UserOperation memory op) {
         address sender_ = makeAddr("sender");
         address paymaster_ = makeAddr("paymaster");
-        UserOperation memory op = UserOperation({
+        op = UserOperation({
             sender: sender_,
-            nonce: 0,
+            nonce: nonce_,
             initCode: "",
             callData: "",
             callGas: 100,
@@ -85,7 +150,6 @@ contract WalletTest is BaseTest  {
             paymasterData: "",
             signature: ""
         });
-        return op;
     }
 
     function testFuzz_explicitDepositEther(uint value_) public { 
@@ -197,114 +261,7 @@ contract WalletTest is BaseTest  {
         return amount;
     }   
 
-
-    /*zzzz
-    function testFuzz_burn_with_value_and_balance_variations(uint value, uint addedBalance) public {
-        value = _limitFunds(value);
-        addedBalance =_limitFunds(addedBalance);         
-        vm.deal(address(s_burn), addedBalance);
-        s_burn.burn{value: value}();
+    function _eq(string memory str1, string memory str2) private pure returns (bool) {
+        return keccak256(abi.encodePacked(str1)) == keccak256(abi.encodePacked(str2));
     }
-
-    function testFuzz_burn_with_value_balance_and_cap_variations(uint value, uint addedBalance, uint burnCap) public {
-        value = _limitFunds(value);
-        addedBalance = _limitFunds(addedBalance); 
-        burnCap = _limitFunds(burnCap); 
-
-        _updateBurnCap(burnCap);        
-
-        vm.deal(address(s_burn), addedBalance);
-        s_burn.burn{value: value}();
-    }
-    ***/
-
-    // function testFuzz_burn_with_burnCap_lesser_than_balance_results_in_no_eth_transfer(uint burnCap) public {
-    //     burnCap = _limitFunds(burnCap);
-
-    //     if (address(s_burn).balance <= burnCap) {
-    //         vm.deal(address(s_burn), burnCap+1); 
-    //     }
-        
-    //     _updateBurnCap(burnCap); zzzzzz OutOfBounds(burnCap, 2851217494792020368862436 [2.851e24], 2851217494792020368862437 
-
-    //     assertTrue( burnCap >= address(s_burn).balance, "bad burnCap value");
-
-    //     address sender = makeAddr("Joe");
-        
-    //     uint value = burnCap; 
-    //     _hoaxWithGas(sender, value); // internally adds ADDITIONAL_GAS_FEES to value
-
-    //     uint preSenderBalance = address(sender).balance;
-
-    //     s_burn.burn{value: value}();
-
-    //     uint postSenderBalance = address(sender).balance;
-
-    //     console.log("preSenderBalance: %s, postSenderBalance: %s", preSenderBalance, postSenderBalance);
-
-    //     assertTrue(postSenderBalance > preSenderBalance - ADDITIONAL_GAS_FEES , "no eth should have been transferred to sender");
-    // }
-
-
-    /*** zzzz
-
-    function test_verify_nonGov_cannot_updateParams() public {
-        uint legalBurnCapValue = address(s_burn).balance + 1;
-        vm.prank(makeAddr("Joe"));
-        vm.expectRevert(abi.encodePacked(ONLY_GOV_ALLOWED_MSG));
-        s_burn.updateParam(BURN_CAP_KEY, abi.encodePacked(legalBurnCapValue));
-    }
-
-    function testFuzz_updateParams_success_scenario(uint newBurnCap,uint addedBalance) public {
-        vm.deal(address(s_burn), addedBalance);
-        vm.assume( newBurnCap >= address(s_burn).balance); //@test?? 
-
-        _updateBurnCap(newBurnCap);        
-
-        assertEq(newBurnCap, s_burn.burnCap(), "bad cap value");
-    }
-
-    function testFuzz_updateParams_bad_paramName(string memory paramName, uint addedBalance) public {
-        vm.assume(!_strEqual(paramName, s_burn.BURN_CAP_KEY())); // else no BAD_PARAM_ERROR_MSG revert
-        addedBalance = _limitFunds(addedBalance); 
-        uint origBurnCap = s_burn.burnCap();
-        vm.deal(address(s_burn), addedBalance);                
-        vm.prank(s_addresses.govHub);
-
-        uint legalBurnCapValue = address(s_burn).balance + 1;
-
-        vm.expectRevert(abi.encodePacked(BAD_PARAM_ERROR_MSG));
-        s_burn.updateParam(paramName, abi.encodePacked(legalBurnCapValue));
-
-        assertEq(origBurnCap, s_burn.burnCap(), "bad cap value");
-    }
-    **/
-
-    // function testFuzz_updateParams_with_bad_burnBap(uint newBurnCap, uint addedBalance) public {
-    //     addedBalance = _limitFunds(addedBalance); 
-    //     vm.deal(address(s_burn), addedBalance);
-
-    //     uint origBurnCap = s_burn.burnCap();
-    //     uint origBalance = address(s_burn).balance;
-
-    //     vm.assume( newBurnCap < address(s_burn).balance); // should result in OutOfBounds error
-        
-    //     vm.expectRevert(
-    //         abi.encodeWithSelector(System.OutOfBounds.selector, BURN_CAP_KEY, newBurnCap, origBalance, type(uint256).max)
-    //     );
-    //     _updateBurnCap(newBurnCap);
-
-    //     assertEq(origBurnCap, s_burn.burnCap(), "bad cap value");zzzzz
-    // }
-
-
-    // function _updateBurnCap(uint newBurnCap) private {
-    //     uint origCap = s_burn.burnCap();
-    //     vm.prank(s_addresses.govHub);
-    //     s_burn.updateParam(BURN_CAP_KEY, abi.encodePacked(newBurnCap));
-    //     uint newCap = s_burn.burnCap();
-    //     console.log("orig cap: %d, new cap: %d", origCap, newCap);
-    //     assertEq(newBurnCap, s_burn.burnCap(), "cap not updated");
-    // }
-
 }		

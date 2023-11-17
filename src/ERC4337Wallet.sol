@@ -29,6 +29,8 @@ contract ERC4337Wallet is IERC4337Wallet, Ownable, ReentrancyGuard {
   event TokenDeposited(address indexed sender, address indexed tokenAddress, uint amount);
   event TokenTransferred(address indexed from, address indexed tokenAddress, address indexed to, uint amount);
 
+  error BadNonceValue(uint nonce, uint opNonce);
+
   modifier onlyEntryPoint() {
     require(msg.sender == address(entryPoint), "not entryPoint");
     _;
@@ -144,15 +146,22 @@ contract ERC4337Wallet is IERC4337Wallet, Ownable, ReentrancyGuard {
     // impl notes: https://blog.openzeppelin.com/eth-foundation-account-abstraction-audit
     
     // validate (and incrementy) nonce
-    require(nonce++ == op.nonce, "invalid nonce value");
+    if (nonce++ != op.nonce) {
+        revert BadNonceValue(nonce, op.nonce);
+    }
 
     // validate signature
     _validateSignature(op, requestId);
 
+    // zzzz reduce requiredPrefund from wallet??
+
     // transfer prefunds to entryPoint
     if (requiredPrefund > 0) {
-        (bool success,) = payable(entryPoint).call{ value: requiredPrefund }("");
-        (success); // do not revert on failure (its EntryPoint's job to verify, not wallet.)
+      // zzz move eth from op.sender to entryPoint balance. 
+      // note: the actual eth transfer will be done by the entryPoint calling calling executeUserOp
+      require(etherBalance[op.sender] >= requiredPrefund, "insufficient eth balance");
+      etherBalance[op.sender] -= requiredPrefund;
+      etherBalance[address(entryPoint)] += requiredPrefund; //zzzz
     }
   }
 
@@ -162,7 +171,13 @@ contract ERC4337Wallet is IERC4337Wallet, Ownable, ReentrancyGuard {
   }
 
   function executeUserOp(address to, uint256 amount, bytes calldata data) external override onlyEntryPoint {
-    require(address(this).balance >= amount, "insufficient balance");
+    require(address(this).balance >= amount, "insufficient wallet eth balance");
+    require(etherBalance[address(entryPoint)] >= amount, "insufficient entryPoint eth balance");
+    
+    // zzzz subtract entryPoint wallet balance by amount
+    // the actual eth transfer will be done by the function call/transfer below
+    etherBalance[address(entryPoint)] -= amount; //zzzz
+ 
     if (data.length > 0) { 
       // call function
       _safeCallFunction(to, amount, data);
