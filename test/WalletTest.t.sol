@@ -38,7 +38,7 @@ contract WalletTest is BaseTest  {
 
     function testFuzz_nonEntryPoint_cannot_callIWalletFuncs(address sender_) public { 
         vm.assume(sender_ != address(s_entryPoint));
-        UserOperation memory op = _makeOp(0);
+        UserOperation memory op = _makeOp(makeAddr("sender"), 0);
         bytes32 requestId = 0;
         uint requiredPrefund_ = 0;
         
@@ -56,7 +56,7 @@ contract WalletTest is BaseTest  {
     }
 
     function test_entryPointCanCallIWalletFuncs() public { 
-        UserOperation memory op = _makeOp(0);
+        UserOperation memory op = _makeOp(makeAddr("sender"), 0);
         bytes32 requestId = 0;
         uint requiredPrefund_ = 0;
         
@@ -76,7 +76,7 @@ contract WalletTest is BaseTest  {
         vm.assume(nonce != opNonce); // else no BadNonceValue error
         s_wallet.setNonce(nonce);
 
-        UserOperation memory op = _makeOp(opNonce);
+        UserOperation memory op = _makeOp(makeAddr("sender"), opNonce);
         bytes32 requestId = 0;
         uint requiredPrefund_ = 0;
         
@@ -90,7 +90,7 @@ contract WalletTest is BaseTest  {
         uint nonce = 100;
         s_wallet.setNonce(nonce);
 
-        UserOperation memory op = _makeOp(nonce);
+        UserOperation memory op = _makeOp(makeAddr("sender"), nonce);
         bytes32 requestId = 0;
         uint requiredPrefund_ = 0;
         
@@ -113,7 +113,20 @@ contract WalletTest is BaseTest  {
         assertEq(target.s_amount(), 0, "target: amount");
         assertTrue(_eq(target.s_str(), ""), "target: str");
 
-        vm.deal(address(s_wallet), amount); // verify sufficiengt balance in wallet
+        // assign 'amount' of eth to addr
+        hoax(addr, amount);
+        // and deposit it to wallet
+        s_wallet.depositEther{ value: amount }();
+
+        hoax(addr); 
+        uint addr_balance = s_wallet.myEtherBalance();
+        assertEq(addr_balance, amount, "depositEther failed");
+
+        UserOperation memory op = _makeOp(addr, 0);
+
+        uint requiredPrefund_ = amount;
+        hoax(address(s_entryPoint)); 
+        s_wallet.validateUserOp(op, 0, requiredPrefund_);
 
         hoax(address(s_entryPoint));
         s_wallet.executeUserOp(address(target), amount, data);
@@ -133,8 +146,7 @@ contract WalletTest is BaseTest  {
         return data;
     }
 
-    function _makeOp(uint nonce_) private returns(UserOperation memory op) {
-        address sender_ = makeAddr("sender");
+    function _makeOp(address sender_, uint nonce_) private returns(UserOperation memory op) {
         address paymaster_ = makeAddr("paymaster");
         op = UserOperation({
             sender: sender_,

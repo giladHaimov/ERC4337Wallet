@@ -22,6 +22,9 @@ contract ERC4337Wallet is IERC4337Wallet, Ownable, ReentrancyGuard {
 
   uint256 public nonce;
 
+  // SHORT_CIRCUIT_MODE: replace all eth/token transfers with on-wallet balance updates
+  bool public SHORT_CIRCUIT_MODE = false;  //zzzz
+
   using ECDSA for bytes32;
 
   event EtherDeposited(address indexed sender, uint indexed value, uint newBalance);
@@ -66,10 +69,11 @@ contract ERC4337Wallet is IERC4337Wallet, Ownable, ReentrancyGuard {
     require(to != address(0), "cannot transfer to zero address");
     require(etherBalance[msg.sender] >= amount, "insufficient eth balance");
     etherBalance[msg.sender] -= amount;
-    // if (etherBalance[to] > 0) {
-    //     update wallet balance without eth transfer
-    // }
-    _safeTransferEther(to, amount);
+    if (SHORT_CIRCUIT_MODE) {
+      etherBalance[to] += amount;
+    } else {
+      _safeTransferEther(to, amount);
+    }
     emit EtherTransferred(msg.sender, to, amount, etherBalance[msg.sender]);
   }
 
@@ -101,10 +105,11 @@ contract ERC4337Wallet is IERC4337Wallet, Ownable, ReentrancyGuard {
     require(to != address(0), "cannot transfer to zero address");
     require(tokenBalance[msg.sender][address(token)] >= amount, "insufficient token balance");
     tokenBalance[msg.sender][address(token)] -= amount;
-    // if (tokenBalance[to][address(token)] > 0) {
-    //     update wallet balance without eth transfer
-    // }
-    _safeTransferToken(token, to, amount);  
+    if (SHORT_CIRCUIT_MODE) {
+      tokenBalance[to][address(token)] += amount;
+    } else {
+      _safeTransferToken(token, to, amount);
+    }
     emit TokenTransferred(msg.sender, address(token), to, amount);
   }
 
@@ -153,16 +158,18 @@ contract ERC4337Wallet is IERC4337Wallet, Ownable, ReentrancyGuard {
     // validate signature
     _validateSignature(op, requestId);
 
-    // zzzz reduce requiredPrefund from wallet??
-
     // transfer prefunds to entryPoint
     if (requiredPrefund > 0) {
       // zzz move eth from op.sender to entryPoint balance. 
       // note: the actual eth transfer will be done by the entryPoint calling calling executeUserOp
-      require(etherBalance[op.sender] >= requiredPrefund, "insufficient eth balance");
-      etherBalance[op.sender] -= requiredPrefund;
-      etherBalance[address(entryPoint)] += requiredPrefund; //zzzz
+      _transferWalletBalance(op.sender, address(entryPoint), requiredPrefund); 
     }
+  }
+
+  function _transferWalletBalance(address from, address to, uint amount) private {
+    require(etherBalance[from] >= amount, "insufficient eth balance");
+    etherBalance[from] -= amount;
+    etherBalance[to] += amount; 
   }
 
   function _validateSignature(UserOperation memory op, bytes32 requestId) internal virtual view {
@@ -190,6 +197,10 @@ contract ERC4337Wallet is IERC4337Wallet, Ownable, ReentrancyGuard {
   function _safeCallFunction(address target, uint256 amount, bytes memory data) private {
     (bool success,) = payable(target).call{ value: amount }(data);
     require(success, "function call failed");
+  }  
+
+  function setShortCircuitMode(bool mode) external onlyOwner {
+    SHORT_CIRCUIT_MODE = mode;
   }  
 
   function _safeTransferEther(address to, uint amount) private {
