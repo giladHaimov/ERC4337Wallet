@@ -29,8 +29,64 @@ contract WalletTest is BaseTest  {
 	    //BaseTest.setUp();
         s_entryPoint = new MockEntryPoint();
         s_wallet = new MockERC4337Wallet(address(s_entryPoint));
+        s_entryPoint.setWallet(s_wallet);
         s_token = address(new MockERC20());
 	}
+
+    function test_nonEntryPointCannotCallIWalletFuncs(address sender_) public { 
+        vm.assume(sender_ != address(s_entryPoint));
+        UserOperation memory op = _makeOp();
+        bytes32 requestId = 0;
+        uint requiredPrefund = 0;
+        
+        hoax(sender_);
+        vm.expectRevert(abi.encodePacked("not entryPoint"));
+        s_wallet.validateUserOp(op, requestId, requiredPrefund);
+
+        address to = makeAddr("executeUserOp:to");
+        uint amount = 0;
+        bytes memory data = "";
+        
+        hoax(sender_);
+        vm.expectRevert(abi.encodePacked("not entryPoint"));
+        s_wallet.executeUserOp(to, amount, data);
+    }
+
+    function test_entryPointCanCallIWalletFuncs() public { 
+        UserOperation memory op = _makeOp();
+        bytes32 requestId = 0;
+        uint requiredPrefund = 0;
+        
+        hoax(address(s_entryPoint));
+        s_wallet.validateUserOp(op, requestId, requiredPrefund);
+
+        address to = makeAddr("executeUserOp:to");
+        uint amount = 0;
+        bytes memory data = "";
+        
+        hoax(address(s_entryPoint));
+        s_wallet.executeUserOp(to, amount, data);
+    }
+
+    function _makeOp() private returns(UserOperation memory) {
+        address sender_ = makeAddr("sender");
+        address paymaster_ = makeAddr("paymaster");
+        UserOperation memory op = UserOperation({
+            sender: sender_,
+            nonce: 0,
+            initCode: "",
+            callData: "",
+            callGas: 100,
+            verificationGas: 100,
+            preVerificationGas: 100,
+            maxFeePerGas: 100,
+            maxPriorityFeePerGas: 100,
+            paymaster: paymaster_,
+            paymasterData: "",
+            signature: ""
+        });
+        return op;
+    }
 
     function testFuzz_explicitDepositEther(uint value_) public { 
         value_ = _limitFunds(value_);

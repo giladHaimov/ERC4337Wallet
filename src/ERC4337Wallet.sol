@@ -140,7 +140,7 @@ contract ERC4337Wallet is IERC4337Wallet, Ownable, ReentrancyGuard {
    * @param requestId identifier computed as keccak256(op, entryPoint, chainId)
    * @param requiredPrefund amount to be paid to the entry point in wei, or zero if there is a paymaster involved
    */    
-  function validateUserOp(UserOperation calldata op, bytes32 requestId, uint256 requiredPrefund) external override onlyEntryPoint {
+  function validateUserOp(UserOperation memory op, bytes32 requestId, uint256 requiredPrefund) external override onlyEntryPoint {
     // impl notes: https://blog.openzeppelin.com/eth-foundation-account-abstraction-audit
     
     // validate (and incrementy) nonce
@@ -156,7 +156,7 @@ contract ERC4337Wallet is IERC4337Wallet, Ownable, ReentrancyGuard {
     }
   }
 
-  function _validateSignature(UserOperation calldata op, bytes32 requestId) internal virtual view {
+  function _validateSignature(UserOperation memory op, bytes32 requestId) internal virtual view {
     bytes32 hash = requestId.toEthSignedMessageHash();
     require(owner() == hash.recover(op.signature), "bad signature");
   }
