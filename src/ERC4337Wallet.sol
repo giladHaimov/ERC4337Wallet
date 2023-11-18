@@ -152,7 +152,7 @@ contract ERC4337Wallet is IERC4337Wallet, Ownable, ReentrancyGuard {
     
     // validate (and incrementy) nonce
     if (nonce++ != op.nonce) {
-        revert BadNonceValue(nonce, op.nonce);
+      revert BadNonceValue(nonce, op.nonce);
     }
 
     // validate signature
@@ -183,14 +183,14 @@ contract ERC4337Wallet is IERC4337Wallet, Ownable, ReentrancyGuard {
     
     // zzzz subtract entryPoint wallet balance by amount
     // the actual eth transfer will be done by the function call/transfer below
-    etherBalance[address(entryPoint)] -= amount; //zzzz
+    etherBalance[address(entryPoint)] -= amount; 
  
     if (data.length > 0) { 
       // call function
       _safeCallFunction(to, amount, data);
     } else {
       // no function data, transfer eth to address
-      _safeTransferEther(to, amount);
+      _safeTransferEther(to, amount); 
     }
   }
 
@@ -205,6 +205,6 @@ contract ERC4337Wallet is IERC4337Wallet, Ownable, ReentrancyGuard {
 
   function _safeTransferEther(address to, uint amount) private {
     (bool success,) = payable(to).call{ value: amount }("");
-    require(success, "eth transfer failed");
+    require(success, "safeTransfer: eth transfer failed");
   }
 }

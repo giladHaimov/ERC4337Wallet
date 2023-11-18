@@ -103,7 +103,7 @@ contract WalletTest is BaseTest  {
         assertEq(pre_balance + requiredPrefund_, post_balance, "validateUserOp failed: requiredPrefund");
     }
 
-    function testFuzz_executeUserOp_validateFunctionCallMode(address addr, uint id, uint amount, string calldata str) public {         
+    function testFuzz_executeUserOp_run_full_ERC4337_functionCall(address addr, uint id, uint amount, string calldata str) public {         
         amount = bound(amount, 0, LARGE_ETH_VALUE);
         MockExecuteTarget target = new MockExecuteTarget();
         bytes memory data = _getFunctionCallData(addr, id, amount, str);
@@ -127,16 +127,64 @@ contract WalletTest is BaseTest  {
         uint requiredPrefund_ = amount;
         hoax(address(s_entryPoint)); 
         s_wallet.validateUserOp(op, 0, requiredPrefund_);
+        assertTrue(address(s_wallet).balance >= requiredPrefund_, "validateUserOp failed: insufficient wallet eth balance");
+
+        if (requiredPrefund_ > 0) {
+            // validateUserOp should have transferred the requiredPrefund_ from initiator addr to the entryPoint
+            assertEq(s_wallet.etherBalance(addr), 0, "validateUserOp failed: from");
+            assertEq(s_wallet.etherBalance(address(s_entryPoint)), requiredPrefund_, "validateUserOp failed: to"); 
+        }
 
         hoax(address(s_entryPoint));
         s_wallet.executeUserOp(address(target), amount, data);
-        
+
+        // executeUserOp should have transferred the amount from the entryPoint to the target
+        assertEq(s_wallet.etherBalance(address(s_entryPoint)), 0, "executeUserOp failed: s_entryPoint"); 
+
+        // verify function called with correct params        
         assertEq(target.s_to(), addr, "post target: to");
         assertEq(target.s_id(), id, "post target: id");
         assertEq(target.s_amount(), amount, "post target: amount");
         assertTrue(_eq(target.s_str(), str), "post target: str");
 
         assertEq(address(target).balance, amount, "post target: balance"); // verify eth transfer
+    } 
+
+    function testFuzz_executeUserOp_run_full_ERC4337_no_functionCall(uint amount) public { 
+        amount = bound(amount, 0, LARGE_ETH_VALUE);
+        bytes memory data = bytes("");
+        address target = makeAddr("target");
+
+        // assign 'amount' of eth to target
+        hoax(target, amount);
+        assertEq(target.balance, amount, "target: hoax failed");
+
+        // and deposit it to wallet
+        s_wallet.depositEther{ value: amount }();
+
+        vm.prank(target); 
+        uint target_balance = s_wallet.myEtherBalance();
+        assertEq(target_balance, amount, "depositEther failed");
+
+        UserOperation memory op = _makeOp(target, 0);
+
+        uint requiredPrefund_ = amount;
+        hoax(address(s_entryPoint)); 
+        s_wallet.validateUserOp(op, 0, requiredPrefund_);
+        assertTrue(address(s_wallet).balance >= requiredPrefund_, "validateUserOp failed: insufficient wallet eth balance");
+
+        if (requiredPrefund_ > 0) {
+            // validateUserOp should have transferred the requiredPrefund_ from initiator target to the entryPoint
+            assertEq(s_wallet.etherBalance(target), 0, "validateUserOp failed: from");
+            assertEq(s_wallet.etherBalance(address(s_entryPoint)), requiredPrefund_, "validateUserOp failed: to"); 
+        }
+
+        hoax(address(s_entryPoint));
+        s_wallet.executeUserOp(target, amount, data);
+
+        // executeUserOp should have transferred the amount from the entryPoint to the target
+        assertEq(s_wallet.etherBalance(address(s_entryPoint)), 0, "executeUserOp failed: s_entryPoint"); 
+        assertEq(target.balance, amount, "post target: balance/2"); // verify eth transfer
     }
 
     function _getFunctionCallData(address to, uint id, uint amount, string calldata str) private pure returns (bytes memory) {
@@ -262,7 +310,6 @@ contract WalletTest is BaseTest  {
         s_wallet.myTokenBalance(addr);
         s_wallet.getTokenBalance(addr, tokenAddress);
     }
-
 
     function _depositTokensIntoWallet(uint amount) private returns(uint) { 
         amount = _limitFunds(amount);
