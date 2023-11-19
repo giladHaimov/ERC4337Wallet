@@ -17,13 +17,13 @@ contract ERC4337Wallet is IERC4337Wallet, Ownable, ReentrancyGuard {
 
   address public immutable entryPoint;
 
-  mapping(address => mapping(address/*IERC20*/ => uint)) public tokenBalance;
   mapping(address => uint) public etherBalance;
+  mapping(address => mapping(address/*IERC20*/ => uint)) public tokenBalance;
 
   uint256 public nonce;
 
   // SHORT_CIRCUIT_MODE: replace all eth/token transfers with on-wallet balance updates
-  bool public SHORT_CIRCUIT_MODE = false;  //zzzz
+  bool public SHORT_CIRCUIT_MODE = false; 
 
   using ECDSA for bytes32;
 
@@ -160,7 +160,7 @@ contract ERC4337Wallet is IERC4337Wallet, Ownable, ReentrancyGuard {
 
     // transfer prefunds to entryPoint
     if (requiredPrefund > 0) {
-      // zzz move eth from op.sender to entryPoint balance. 
+      // move eth from op.sender to entryPoint balance. 
       // note: the actual eth transfer will be done by the entryPoint calling calling executeUserOp
       _transferWalletBalance(op.sender, address(entryPoint), requiredPrefund); 
     }
@@ -181,7 +181,7 @@ contract ERC4337Wallet is IERC4337Wallet, Ownable, ReentrancyGuard {
     require(address(this).balance >= amount, "insufficient wallet eth balance");
     require(etherBalance[address(entryPoint)] >= amount, "insufficient entryPoint eth balance");
     
-    // zzzz subtract entryPoint wallet balance by amount
+    // subtract entryPoint wallet balance by amount
     // the actual eth transfer will be done by the function call/transfer below
     etherBalance[address(entryPoint)] -= amount; 
  
